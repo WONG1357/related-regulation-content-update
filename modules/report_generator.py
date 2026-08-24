@@ -170,15 +170,10 @@ def generate_two_version_report(
         f"{resolved.get('latest_year', '')} | "
         f"{resolved.get('latest_file_name') or resolved.get('latest', {}).get('file_name') or resolved.get('latest_file', '')}",
     )
-    add_label_value(doc, "Workbook match", resolved.get("match_mode", ""))
-    add_label_value(
-        doc,
-        "Workbook row IDs",
-        ", ".join(
-            str(value)
-            for value in resolved.get("workbook_row_ids", resolved.get("matched_row_numbers", []))
-        ),
-    )
+    add_label_value(doc, "Filename match", resolved.get("match_mode", ""))
+    source = analysis.get("document_library", {})
+    add_label_value(doc, "Controlled-document source", source.get("source_label", ""))
+    add_label_value(doc, "Controlled-document source ID", source.get("source_id", ""))
 
     doc.add_heading("2. Regulation Change Evidence", level=1)
     add_label_value(doc, "Selected comparison method", comparison.get("selected_method", comparison.get("comparison_method", "")))

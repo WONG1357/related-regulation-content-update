@@ -6,11 +6,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import pandas as pd
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
-from regulatory_update_app.modules.regulation_identity import (
+from modules.regulation_identity import (
     RegulationIdentityError,
     normalize_identifier,
     resolve_regulation_pair,
@@ -18,93 +16,71 @@ from regulatory_update_app.modules.regulation_identity import (
 
 
 class RegulationIdentityTests(unittest.TestCase):
-    def test_exact_match_orders_swapped_uploads_and_aggregates_aliases(self) -> None:
+    def test_filename_match_orders_swapped_editions(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            old = self._text_file(root, "SAR-00151  ISO 13485 2003.pdf.txt", "ISO 13485:2003 old edition")
-            latest = self._text_file(root, "SAR-00221 ISO 13485-2016(1).txt", "ISO 13485:2016 latest edition")
-            workbook = self._workbook(
-                root,
-                [
-                    [18, "BS EN ISO 13485:2003", 2003, "ISO 13485:2016", 2016],
-                    [22, "YY/T 0287-2003/ISO 13485", 2003, "ISO 13485:2016", 2016],
-                    ["subtotal", "INVALID ISO 13485", 2003, "ISO 13485:2016", 2016],
-                ],
-            )
+            old = self._text_file(root, "ISO 13485-2003.txt")
+            latest = self._text_file(root, "ISO 13485-2016.txt")
 
-            result = resolve_regulation_pair(latest, old, workbook)
+            result = resolve_regulation_pair(latest, old)
 
             self.assertEqual(result.old.file_path, str(old.resolve()))
             self.assertEqual(result.latest.file_path, str(latest.resolve()))
             self.assertEqual(result.family, "ISO 13485")
-            self.assertEqual(result.match_mode, "exact_match")
-            self.assertEqual(result.matched_row_numbers, (18, 22))
-            self.assertIn("BS EN ISO 13485:2003", result.aliases)
-            self.assertNotIn("INVALID ISO 13485", result.aliases)
+            self.assertEqual(result.match_mode, "filename_match")
+            self.assertEqual(result.aliases, ("ISO 13485",))
             json.dumps(result.to_dict())
 
-    def test_family_fallback_accepts_old_edition_absent_from_workbook(self) -> None:
+    def test_gn_filenames_match_without_reading_file_content(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            old = self._text_file(root, "SAR-00619 ISO 14971-2000.txt", "ISO 14971:2000")
-            latest = self._text_file(root, "SAR-00341 ISO 14971-2019.txt", "ISO 14971:2019")
-            workbook = self._workbook(
-                root,
-                [
-                    [8, "BS EN ISO 14971", 2009, "ISO 14971:2019", 2019],
-                    [82, "BS EN ISO 14971", 2012, "ISO 14971:2019", 2019],
-                    [170, "YY/T 0316 / ISO 14971", 2008, "ISO 14971:2019", 2019],
-                ],
+            old = self._text_file(root, "stored-a.txt")
+            latest = self._text_file(root, "stored-b.txt")
+
+            result = resolve_regulation_pair(
+                old,
+                latest,
+                first_name="GN-02-2025(C).pdf",
+                second_name="GN-02-2026(C).pdf",
             )
 
-            result = resolve_regulation_pair(old, latest, workbook)
+            self.assertEqual(result.family, "GN-02(C)")
+            self.assertEqual(result.old_year, 2025)
+            self.assertEqual(result.latest_year, 2026)
+            self.assertEqual(result.aliases, ("GN-02(C)", "GN-02"))
 
-            self.assertEqual(result.match_mode, "family_match")
-            self.assertEqual(result.matched_row_numbers, (8, 82, 170))
-            self.assertTrue(result.warnings)
-            self.assertIn("YY/T 0316", result.aliases)
-
-    def test_mismatched_families_fail_closed(self) -> None:
+    def test_mismatched_filename_names_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            first = self._text_file(root, "ISO 13485 2003.txt", "ISO 13485:2003")
-            second = self._text_file(root, "ISO 14971 2019.txt", "ISO 14971:2019")
-            workbook = self._workbook(root, [[1, "ISO 13485", 2003, "ISO 13485:2016", 2016]])
+            first = self._text_file(root, "GN-02-2025(C).txt")
+            second = self._text_file(root, "GN-03-2026(C).txt")
 
-            with self.assertRaisesRegex(RegulationIdentityError, "different regulation families") as caught:
-                resolve_regulation_pair(first, second, workbook)
+            with self.assertRaisesRegex(RegulationIdentityError, "do not share the same regulation name") as caught:
+                resolve_regulation_pair(first, second)
 
-            self.assertEqual(caught.exception.code, "family_mismatch")
+            self.assertEqual(caught.exception.code, "filename_mismatch")
 
     def test_missing_year_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            first = self._text_file(root, "ISO 13485 old.txt", "ISO 13485 without an edition date")
-            second = self._text_file(root, "ISO 13485 2016.txt", "ISO 13485:2016")
-            workbook = self._workbook(root, [[1, "ISO 13485", 2003, "ISO 13485:2016", 2016]])
+            first = self._text_file(root, "GN-02-old.txt")
+            second = self._text_file(root, "GN-02-2026.txt")
 
             with self.assertRaises(RegulationIdentityError) as caught:
-                resolve_regulation_pair(first, second, workbook)
+                resolve_regulation_pair(first, second)
 
             self.assertEqual(caught.exception.code, "year_missing")
 
-    def test_ambiguous_latest_group_fails_closed(self) -> None:
+    def test_same_edition_year_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            old = self._text_file(root, "ISO 13485 2003.txt", "ISO 13485:2003")
-            latest = self._text_file(root, "ISO 13485 2016.txt", "ISO 13485:2016")
-            workbook = self._workbook(
-                root,
-                [
-                    [1, "ISO 13485:2003", 2003, "ISO 13485:2016", 2016],
-                    [2, "BS EN ISO 13485:2003", 2003, "ISO 13485:2016/A1", 2016],
-                ],
-            )
+            first = self._text_file(root, "GN-02-2026(C).txt")
+            second = self._text_file(root, "GN-02-2026(C)-copy.txt")
 
             with self.assertRaises(RegulationIdentityError) as caught:
-                resolve_regulation_pair(old, latest, workbook)
+                resolve_regulation_pair(first, second)
 
-            self.assertEqual(caught.exception.code, "ambiguous_latest_match")
+            self.assertEqual(caught.exception.code, "same_edition")
 
     def test_normalization_handles_unicode_sar_prefix_and_copy_suffix(self) -> None:
         self.assertEqual(
@@ -113,19 +89,9 @@ class RegulationIdentityTests(unittest.TestCase):
         )
 
     @staticmethod
-    def _text_file(root: Path, name: str, content: str) -> Path:
+    def _text_file(root: Path, name: str) -> Path:
         path = root / name
-        path.write_text(content, encoding="utf-8")
-        return path
-
-    @staticmethod
-    def _workbook(root: Path, rows: list[list[object]]) -> Path:
-        path = root / "registry.xlsx"
-        frame = pd.DataFrame(
-            rows,
-            columns=["序号", "原标准编号", "原版本年份", "最新版本", "最新年份"],
-        )
-        frame.to_excel(path, index=False, sheet_name="原始总表")
+        path.write_text("Content is intentionally irrelevant to filename matching.", encoding="utf-8")
         return path
 
 

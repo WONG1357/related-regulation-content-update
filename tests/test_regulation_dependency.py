@@ -6,9 +6,9 @@ import unittest
 from pathlib import Path
 
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from regulatory_update_app.modules.regulation_dependency import discover_affected_files
+from modules.regulation_dependency import discover_affected_files
 
 
 class RegulationDependencyTests(unittest.TestCase):

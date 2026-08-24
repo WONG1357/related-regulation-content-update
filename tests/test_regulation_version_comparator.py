@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from regulatory_update_app.modules.impact_analyzer import select_candidate_pairs
-from regulatory_update_app.modules.regulation_version_comparator import (
+from modules.impact_analyzer import select_candidate_pairs
+from modules.regulation_version_comparator import (
     AcceptedClauseChangeEvidence,
     aggregate_clause_comparisons,
     compare_regulation_versions,

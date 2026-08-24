@@ -4,10 +4,11 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import ANY, patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from regulatory_update_app.modules.document_library import load_or_extract_documents
+from modules.document_library import load_or_extract_documents
 
 
 class DocumentLibraryTests(unittest.TestCase):
@@ -67,6 +68,28 @@ class DocumentLibraryTests(unittest.TestCase):
             load_or_extract_documents(items, cache, "v2", extractor=extractor, refresh_references=False)
 
         self.assertEqual(calls["count"], 2)
+
+    def test_reference_refresh_uses_the_selected_source_folder(self) -> None:
+        def extractor(path):
+            return {"file_path": str(path), "document_code": "QSP0001", "sections": [], "main_sections": []}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source_dir = root / "uploaded-source"
+            source_dir.mkdir()
+            source = source_dir / "QSP0001.docx"
+            source.write_bytes(b"document")
+            items = [{"source_path": str(source), "extracted_path": str(source)}]
+            with patch("modules.document_library.refresh_document_references") as refresh:
+                load_or_extract_documents(
+                    items,
+                    root / "cache.json",
+                    "v1",
+                    extractor=extractor,
+                    original_file_dir=source_dir,
+                )
+
+            refresh.assert_called_once_with(ANY, source, source_dir)
 
 
 if __name__ == "__main__":

@@ -9,11 +9,11 @@ import json
 import pandas as pd
 from docx import Document
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from regulatory_update_app.modules.amendment_applier import apply_amendment_to_source
-from regulatory_update_app.modules.document_cache import export_document_summaries, get_or_create_profile
-from regulatory_update_app.modules.document_extractor import (
+from modules.amendment_applier import apply_amendment_to_source
+from modules.document_cache import export_document_summaries, get_or_create_profile
+from modules.document_extractor import (
     clean_chinese_only_line,
     extract_chinese_only_text,
     extract_document,
@@ -21,9 +21,9 @@ from regulatory_update_app.modules.document_extractor import (
     extract_main_sections,
     extract_section_references,
 )
-from regulatory_update_app.modules.excel_loader import load_regulation_excel
-from regulatory_update_app.modules.impact_analyzer import analyze_impact, classify_priority, review_one_candidate, select_candidate_pairs
-from regulatory_update_app.modules.incremental_review_runner import (
+from modules.excel_loader import load_regulation_excel
+from modules.impact_analyzer import analyze_impact, classify_priority, review_one_candidate, select_candidate_pairs
+from modules.incremental_review_runner import (
     create_review_job,
     load_reviewer_decisions,
     load_review_job,
@@ -32,12 +32,12 @@ from regulatory_update_app.modules.incremental_review_runner import (
     run_review_job,
     save_reviewer_decision,
 )
-from regulatory_update_app.modules.reference_graph import attach_reference_matches, build_reference_map_rows, document_code_from_filename
-from regulatory_update_app.modules.regulation_pairing import build_file_regulation_pairing_map
-from regulatory_update_app.modules.reference_tree import build_reference_tree
-from regulatory_update_app.modules.regulation_normalizer import aliases_for
-from regulatory_update_app.modules.export_utils import dataframe_to_csv_bytes, dataframe_to_excel_bytes
-from regulatory_update_app.modules import agentic_amendment_workflow as amendment_workflow
+from modules.reference_graph import attach_reference_matches, build_reference_map_rows, document_code_from_filename
+from modules.regulation_pairing import build_file_regulation_pairing_map
+from modules.reference_tree import build_reference_tree
+from modules.regulation_normalizer import aliases_for
+from modules.export_utils import dataframe_to_csv_bytes, dataframe_to_excel_bytes
+from modules import agentic_amendment_workflow as amendment_workflow
 
 
 class RegulatoryUpdateTests(unittest.TestCase):

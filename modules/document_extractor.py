@@ -349,7 +349,11 @@ def extract_document(path: str | Path) -> dict[str, object]:
     }
 
 
-def refresh_document_references(document: dict[str, object], source_path: str | Path) -> None:
+def refresh_document_references(
+    document: dict[str, object],
+    source_path: str | Path,
+    original_file_dir: str | Path = DEFAULT_ORIGINAL_FILE_DIR,
+) -> None:
     sections = document.get("sections", [])
     main_sections = document.get("main_sections", [])
     if not isinstance(sections, list) or not isinstance(main_sections, list):
@@ -362,6 +366,7 @@ def refresh_document_references(document: dict[str, object], source_path: str | 
         main_sections,
         file_path=source,
         document_code=str(document.get("document_code", "")),
+        original_file_dir=original_file_dir,
         plain_text=plain_text,
     )
     document.update(references)

@@ -42,6 +42,7 @@ def load_document_library(
         items,
         cache_path=cache_path,
         extractor_version=REFERENCE_EXTRACTOR_VERSION,
+        original_file_dir=original_dir,
         progress_callback=progress_callback,
     )
     graph = attach_reference_matches(documents)
@@ -61,6 +62,7 @@ def load_or_extract_documents(
     extractor_version: str,
     extractor: DocumentExtractor = extract_document,
     refresh_references: bool = True,
+    original_file_dir: str | Path | None = None,
     progress_callback: ProgressCallback | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]], dict[str, int]]:
     path = Path(cache_path)
@@ -96,7 +98,7 @@ def load_or_extract_documents(
             else:
                 document = dict(extractor(extracted_path))
                 if refresh_references:
-                    refresh_document_references(document, source_path)
+                    refresh_document_references(document, source_path, original_file_dir or source_path.parent)
                 misses += 1
             document["source_file_path"] = str(source_path)
             document["source_file_name"] = source_path.name

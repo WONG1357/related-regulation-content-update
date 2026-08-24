@@ -13,6 +13,12 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from modules.ai_amendment_agent import ai_is_configured
+from modules.controlled_document_source import (
+    ControlledDocumentSourceError,
+    SUPPORTED_CONTROLLED_SUFFIXES,
+    describe_configured_controlled_documents,
+    save_uploaded_controlled_documents,
+)
 from modules.document_library import load_document_library
 from modules.export_utils import audit_workbook_bytes
 from modules.reference_graph import REFERENCE_EXTRACTOR_VERSION
@@ -36,13 +42,15 @@ from modules.suggestion_runner import (
 
 APP_DIR = Path(__file__).resolve().parent
 DATA_DIR = APP_DIR / "data"
-DEFAULT_EXCEL = APP_DIR.parent / "AI-assisted regulatory updates.xlsx"
 DEFAULT_DOC_DIR = APP_DIR.parent / "original file"
 UPLOAD_ROOT = DATA_DIR / "two_version_uploads"
 ANALYSIS_ROOT = DATA_DIR / "two_version_analyses"
 SUGGESTION_JOB_DIR = DATA_DIR / "regulatory_update_jobs"
 OUTPUT_ROOT = DATA_DIR / "two_version_outputs"
+CONTROLLED_UPLOAD_ROOT = DATA_DIR / "controlled_document_uploads"
+CONTROLLED_WORKSPACE_ROOT = DATA_DIR / "controlled_document_workspaces"
 ALLOWED_UPLOAD_TYPES = ["pdf", "docx", "xlsx", "txt"]
+CONTROLLED_UPLOAD_TYPES = sorted(suffix.removeprefix(".") for suffix in SUPPORTED_CONTROLLED_SUFFIXES)
 
 
 st.set_page_config(
@@ -133,16 +141,75 @@ def progress_callback(progress: Any, detail: Any) -> Callable[[int, int, str], N
     return update
 
 
-def run_two_version_analysis(first_upload: Any, second_upload: Any) -> dict[str, Any]:
+def prepare_controlled_document_source(
+    uploaded_files: list[Any],
+    use_configured_source: bool,
+) -> dict[str, Any]:
+    if use_configured_source:
+        return describe_configured_controlled_documents(DEFAULT_DOC_DIR)
+    return save_uploaded_controlled_documents(uploaded_files, CONTROLLED_UPLOAD_ROOT)
+
+
+def controlled_source_directory(source: dict[str, Any]) -> Path:
+    source_id = str(source.get("source_id", ""))
+    if not re.fullmatch(r"[0-9a-f]{16}", source_id):
+        raise ControlledDocumentSourceError("The controlled-document source identifier is invalid. Run the analysis again.")
+    if source.get("source_mode") == "configured_server_folder":
+        current = describe_configured_controlled_documents(DEFAULT_DOC_DIR)
+        if current["source_id"] != source_id:
+            raise ControlledDocumentSourceError(
+                "The configured controlled-document folder changed after this analysis. Run the analysis again."
+            )
+        directory = DEFAULT_DOC_DIR
+    elif source.get("source_mode") == "uploaded_directory":
+        directory = CONTROLLED_UPLOAD_ROOT / source_id / "files"
+    else:
+        raise ControlledDocumentSourceError("The controlled-document source is unknown. Run the analysis again.")
+    if not directory.is_dir():
+        raise ControlledDocumentSourceError(
+            "The controlled-document source is no longer available. Select or upload the folder again."
+        )
+    return directory
+
+
+def load_controlled_document_source(
+    source: dict[str, Any],
+    callback: Callable[[int, int, str], None] | None = None,
+) -> dict[str, Any]:
+    source_id = str(source.get("source_id", ""))
+    directory = controlled_source_directory(source)
+    workspace = CONTROLLED_WORKSPACE_ROOT / source_id
+    library = load_document_library(
+        directory,
+        workspace / "converted_documents",
+        cache_path=workspace / "document_library_cache.json",
+        reference_audit_dir=workspace / "reference_audit",
+        progress_callback=callback,
+    )
+    if not library.get("documents"):
+        raise ControlledDocumentSourceError(
+            "No controlled document could be read from the selected folder. Check the file types and conversion audit."
+        )
+    return library
+
+
+def run_two_version_analysis(
+    first_upload: Any,
+    second_upload: Any,
+    controlled_uploads: list[Any],
+    use_configured_source: bool,
+) -> dict[str, Any]:
     first_path, second_path, upload_pair_id = save_uploaded_pair(first_upload, second_upload)
-    if not DEFAULT_EXCEL.is_file():
-        raise FileNotFoundError("The configured alias workbook was not found.")
-    if not DEFAULT_DOC_DIR.is_dir():
-        raise FileNotFoundError("The configured controlled-document folder was not found.")
 
     status = st.status("Resolving the uploaded editions…", expanded=True)
-    status.write("Reading document identity and workbook aliases")
-    resolved_model = resolve_regulation_pair(first_path, second_path, DEFAULT_EXCEL)
+    status.write("Matching regulation names and edition years from the uploaded filenames")
+    resolved_model = resolve_regulation_pair(
+        first_path,
+        second_path,
+        first_name=first_upload.name,
+        second_name=second_upload.name,
+    )
+    source = prepare_controlled_document_source(controlled_uploads, use_configured_source)
     resolved = resolved_model.to_dict()
     resolved.update(
         {
@@ -151,7 +218,6 @@ def run_two_version_analysis(first_upload: Any, second_upload: Any) -> dict[str,
             "latest_file_name": resolved_model.latest.file_name,
             "old_file_hash": file_sha256(Path(resolved_model.old_file)),
             "latest_file_hash": file_sha256(Path(resolved_model.latest_file)),
-            "workbook_row_ids": list(resolved_model.matched_row_numbers),
         }
     )
 
@@ -168,13 +234,7 @@ def run_two_version_analysis(first_upload: Any, second_upload: Any) -> dict[str,
     status.write("Refreshing changed controlled files and Section 3 references")
     progress = st.progress(0, text="Controlled-document index · starting")
     detail = st.empty()
-    library = load_document_library(
-        DEFAULT_DOC_DIR,
-        DATA_DIR / "converted_documents",
-        cache_path=DATA_DIR / "document_library_cache.json",
-        reference_audit_dir=DATA_DIR / "reference_audit",
-        progress_callback=progress_callback(progress, detail),
-    )
+    library = load_controlled_document_source(source, progress_callback(progress, detail))
     documents = library["documents"]
     aliases = list(dict.fromkeys([*resolved_model.aliases, resolved_model.family]))
     dependency = discover_affected_files(documents, aliases).to_dict()
@@ -189,6 +249,7 @@ def run_two_version_analysis(first_upload: Any, second_upload: Any) -> dict[str,
                 str(resolved["latest_year"]),
                 resolved["old_file_hash"],
                 resolved["latest_file_hash"],
+                str(source["source_id"]),
                 REFERENCE_EXTRACTOR_VERSION,
             ]
         ).encode("utf-8")
@@ -202,7 +263,11 @@ def run_two_version_analysis(first_upload: Any, second_upload: Any) -> dict[str,
         "comparison": comparison,
         "dependency": dependency,
         "document_library": {
-            "source_folder": "Configured controlled-document folder",
+            "source_id": source["source_id"],
+            "source_mode": source["source_mode"],
+            "source_label": source["source_label"],
+            "source_file_count": source["file_count"],
+            "source_total_bytes": source["total_bytes"],
             "extractor_version": REFERENCE_EXTRACTOR_VERSION,
             "document_count": len(documents),
             "cache_stats": library.get("cache_stats", {}),
@@ -232,7 +297,6 @@ PATH_FIELD_NAMES = {
     "source_file_path",
     "old_file",
     "latest_file",
-    "workbook_path",
     "source_folder",
 }
 
@@ -364,9 +428,9 @@ def input_resolution_frame(analysis: dict[str, Any]) -> pd.DataFrame:
                 "earlier_sha256": resolved.get("old_file_hash", ""),
                 "later_sha256": resolved.get("latest_file_hash", ""),
                 "aliases": text_value(resolved.get("aliases", [])),
-                "workbook_rows": text_value(resolved.get("matched_row_numbers", [])),
-                "workbook": "Configured alias registry",
-                "controlled_document_folder": "Configured controlled-document folder",
+                "identity_source": "Uploaded filenames",
+                "controlled_document_source": analysis.get("document_library", {}).get("source_label", ""),
+                "controlled_document_source_id": analysis.get("document_library", {}).get("source_id", ""),
                 "comparison_method": analysis.get("comparison", {}).get("selected_method", ""),
             }
         ]
@@ -387,12 +451,13 @@ def ensure_documents_loaded() -> list[dict[str, Any]]:
     documents = st.session_state.controlled_documents
     if documents:
         return documents
-    library = load_document_library(
-        DEFAULT_DOC_DIR,
-        DATA_DIR / "converted_documents",
-        cache_path=DATA_DIR / "document_library_cache.json",
-        reference_audit_dir=DATA_DIR / "reference_audit",
-    )
+    analysis = st.session_state.two_version_analysis or {}
+    source = analysis.get("document_library", {})
+    if not source.get("source_id"):
+        raise ControlledDocumentSourceError(
+            "This analysis does not record its controlled-document source. Run the analysis again."
+        )
+    library = load_controlled_document_source(source)
     st.session_state.controlled_documents = library["documents"]
     return library["documents"]
 
@@ -407,15 +472,15 @@ def render_metric_cards(values: list[tuple[str, Any, str]]) -> None:
 def render_upload_stage(analysis: dict[str, Any] | None) -> None:
     st.subheader("Upload two editions")
     st.caption(
-        "Upload exactly two versions of the same regulation. Edition order is inferred from the documents and filenames."
+        "Upload exactly two versions of the same regulation. The filenames must match after removing the edition year."
     )
     source_left, source_right = st.columns(2)
     with source_left:
-        st.markdown("**Alias registry · read only**")
-        st.code("Configured alias registry: AI-assisted regulatory updates.xlsx", language=None)
+        st.markdown("**Identity check · filenames only**")
+        st.code("Same regulation name + different four-digit edition years", language=None)
     with source_right:
-        st.markdown("**Controlled-document source · read only**")
-        st.code("Configured controlled-document folder: original file", language=None)
+        st.markdown("**Controlled-document source · selected by user**")
+        st.code("Upload a folder or use the configured server folder", language=None)
 
     first_col, second_col = st.columns(2)
     with first_col:
@@ -433,7 +498,46 @@ def render_upload_stage(analysis: dict[str, Any] | None) -> None:
             help="PDF, DOCX, XLSX, or TXT",
         )
 
-    ready = first_upload is not None and second_upload is not None
+    st.markdown("#### Controlled-document folder")
+    source_options = ["Upload a folder"]
+    configured_source: dict[str, Any] | None = None
+    try:
+        configured_source = describe_configured_controlled_documents(DEFAULT_DOC_DIR)
+    except ControlledDocumentSourceError:
+        pass
+    if configured_source:
+        source_options.insert(0, "Use configured server folder")
+    source_choice = st.radio(
+        "Controlled-document source",
+        source_options,
+        horizontal=True,
+        key="controlled_document_source_choice",
+    )
+    use_configured_source = source_choice == "Use configured server folder"
+    controlled_uploads: list[Any] = []
+    if use_configured_source:
+        st.caption(
+            f"Using {configured_source['file_count']} supported file(s) from the server's `{DEFAULT_DOC_DIR.name}` folder."
+        )
+    else:
+        controlled_uploads = st.file_uploader(
+            "Select the controlled-document folder",
+            type=CONTROLLED_UPLOAD_TYPES,
+            accept_multiple_files="directory",
+            key="controlled_document_folder_upload",
+            help="Select the folder itself. DOC, DOCX, XLS, and XLSX files in it will be uploaded.",
+        )
+        if controlled_uploads:
+            total_bytes = sum(len(item.getvalue()) for item in controlled_uploads)
+            st.caption(
+                f"Selected {len(controlled_uploads)} supported file(s) · {total_bytes / (1024 * 1024):.1f} MB. "
+                "Files are copied to this app's managed local storage for analysis."
+            )
+        else:
+            st.info("Select the controlled-document folder to continue.", icon="↗")
+
+    source_ready = use_configured_source or bool(controlled_uploads)
+    ready = first_upload is not None and second_upload is not None and source_ready
     if (first_upload is None) != (second_upload is None):
         st.info("Add the second edition to continue.", icon="↗")
     if st.button(
@@ -444,7 +548,12 @@ def render_upload_stage(analysis: dict[str, Any] | None) -> None:
     ):
         st.session_state.analysis_error = ""
         try:
-            analysis = run_two_version_analysis(first_upload, second_upload)
+            analysis = run_two_version_analysis(
+                first_upload,
+                second_upload,
+                controlled_uploads,
+                use_configured_source,
+            )
             st.rerun()
         except RegulationIdentityError as exc:
             st.session_state.analysis_error = f"{exc} [{exc.code}]"
@@ -464,14 +573,18 @@ def render_upload_stage(analysis: dict[str, Any] | None) -> None:
             ("Family", resolved.get("family", "—"), "Normalized regulation family"),
             ("Earlier edition", resolved.get("old_year", "—"), resolved.get("old", {}).get("file_name", "")),
             ("Later edition", resolved.get("latest_year", "—"), resolved.get("latest", {}).get("file_name", "")),
-            ("Registry match", resolved.get("match_mode", "—"), "Exact edition or accepted family fallback"),
+            ("Filename match", resolved.get("match_mode", "—"), "Names match after removing the edition year"),
         ]
     )
     for warning in resolved.get("warnings", []):
         st.warning(warning, icon="⚠")
     with st.expander(f"Resolved aliases ({len(resolved.get('aliases', []))})"):
         st.write(resolved.get("aliases", []))
-        st.dataframe(pd.DataFrame(resolved.get("matched_rows", [])), use_container_width=True, hide_index=True)
+    source = analysis.get("document_library", {})
+    st.caption(
+        f"Controlled documents: {source.get('source_label', '—')} · "
+        f"{source.get('source_file_count', 0)} source file(s)."
+    )
 
 
 def render_change_stage(analysis: dict[str, Any] | None) -> None:
@@ -559,6 +672,8 @@ def render_affected_stage(analysis: dict[str, Any] | None) -> None:
         st.json(
             public_value({
                 "document_count": library.get("document_count", 0),
+                "source": library.get("source_label", ""),
+                "source_file_count": library.get("source_file_count", 0),
                 "cache_stats": library.get("cache_stats", {}),
                 "extractor_version": library.get("extractor_version", ""),
                 "failures": failures,

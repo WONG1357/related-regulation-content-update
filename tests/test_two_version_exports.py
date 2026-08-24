@@ -9,10 +9,10 @@ from pathlib import Path
 import pandas as pd
 from openpyxl import load_workbook
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from regulatory_update_app.modules.export_utils import audit_workbook_bytes
-from regulatory_update_app.modules.report_generator import generate_two_version_report
+from modules.export_utils import audit_workbook_bytes
+from modules.report_generator import generate_two_version_report
 
 
 class TwoVersionExportTests(unittest.TestCase):
@@ -35,8 +35,7 @@ class TwoVersionExportTests(unittest.TestCase):
                 "family_key": "ISO 13485",
                 "old_year": 2003,
                 "latest_year": 2016,
-                "match_mode": "exact_pair",
-                "workbook_row_ids": [18],
+                "match_mode": "filename_match",
             },
             "comparison": {
                 "selected_method": "official_exact_edition_comparison",

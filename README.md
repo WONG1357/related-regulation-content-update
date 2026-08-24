@@ -7,9 +7,9 @@ The application compares two uploaded editions of the same regulation, traces af
 ## What the application does
 
 1. Accepts exactly two regulation files: PDF, DOCX, XLSX, or TXT.
-2. Resolves the regulation family and edition order using document content, filenames, and the read-only `原始总表` alias registry.
+2. Requires both filenames to match after removing one four-digit edition year, then orders the editions by year.
 3. Compares normative clauses. For ISO 13485:2003 → ISO 13485:2016, the official Annex A comparison table is used when it validates successfully.
-4. Reads the Section 3/reference section of controlled documents in the configured `original file` folder.
+4. Reads the Section 3/reference section of controlled documents from a user-uploaded folder or the configured server-side `original file` folder.
 5. Finds direct regulation matches, then follows referenced controlled files recursively until no new files remain.
 6. Allows the reviewer to inspect evidence before explicitly starting AI amendment suggestions.
 7. Exports an audit workbook and a Word evidence report.
@@ -20,14 +20,16 @@ Unchanged, editorial-only, renumber-only, unresolved, unmatched, and conflicting
 
 ### 1. Upload & Resolve
 
-Upload two editions of the same regulation. The app automatically determines which file is earlier and which is later.
+Upload two editions of the same regulation. Each filename must contain exactly one four-digit edition year. After removing that year, the normalized filenames must match; the app then determines which edition is earlier and which is later.
 
-The workbook and controlled-document folder are shown as read-only configured sources:
+For example, `GN-02-2025(C).pdf` and `GN-02-2026(C).pdf` are accepted as the same regulation name.
 
-- `../AI-assisted regulatory updates.xlsx`
-- `../original file/`
+Choose one controlled-document source:
 
-The workbook is used only as an alias registry. Its change-summary columns do not drive the comparison.
+- **Upload a folder:** select the folder itself in the browser. Streamlit uploads supported `.doc`, `.docx`, `.xls`, and `.xlsx` files, including files selected from subfolders. The app safely flattens the uploaded names and rejects duplicate basenames rather than overwriting a file.
+- **Use configured server folder:** available only when `../original file/` exists and contains supported documents.
+
+An uploaded folder is copied into content-addressed local app storage. Its source ID is recorded with the analysis so page reruns, AI-job resumes, and retries reload the same controlled-document set instead of switching to another folder.
 
 ### 2. Change Evidence
 
@@ -91,11 +93,10 @@ http://127.0.0.1:8501
 
 ## Expected folder layout
 
-The app expects the alias workbook and controlled-document folder beside the application directory:
+The server-side controlled-document folder is optional. When present, use this layout:
 
 ```text
 project-root/
-├── AI-assisted regulatory updates.xlsx
 ├── original file/
 └── regulatory_update_app/
     ├── app.py
@@ -105,6 +106,7 @@ project-root/
 ```
 
 The controlled-document folder may contain confidential documents. Do not upload those files to a public repository.
+Browser-uploaded folders remain in the app's local `data/controlled_document_uploads/` storage to support analysis reruns and suggestion-job resumes. Apply your organization's access-control and retention requirements to that storage.
 
 ## API key configuration
 
@@ -162,13 +164,17 @@ The real-sample smoke test uses two local regulation PDFs and requires access to
 
 ## Troubleshooting
 
-### The app cannot find the workbook
+### The uploaded filenames do not match
 
-Confirm that `AI-assisted regulatory updates.xlsx` is beside `regulatory_update_app/`, not inside an unrelated folder.
+Confirm that both filenames are identical after removing their four-digit edition years. Each filename must contain exactly one year, and the two years must differ.
 
-### The app cannot find controlled documents
+### The configured server folder is unavailable
 
-Confirm that the configured sibling folder is named exactly `original file` and contains readable source files.
+Upload the controlled-document folder in the app, or confirm that the configured sibling folder is named exactly `original file` and contains readable `.doc`, `.docx`, `.xls`, or `.xlsx` files.
+
+### The uploaded folder has duplicate filenames
+
+The app flattens subfolders because controlled documents are resolved by filename/document code. Rename duplicate basenames or place only one copy of each controlled document in the selected folder.
 
 ### Legacy `.doc` files fail to convert
 

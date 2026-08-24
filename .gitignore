@@ -1,0 +1,21 @@
+# Secrets
+.env
+.env.txt
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# Runtime data can contain personal paths, controlled documents, standards, and AI output.
+data/*
+!data/.gitignore
+
+# Local Python and Streamlit state
+.venv/
+__pycache__/
+*.py[cod]
+.streamlit-home/
+.streamlit_home/
+streamlit-home/
+
+# Local operating-system files
+.DS_Store

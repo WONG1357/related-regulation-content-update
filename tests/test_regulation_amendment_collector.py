@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from regulatory_update_app.modules.regulation_amendment_collector import (
+from modules.regulation_amendment_collector import (
     build_amendment_profiles,
     collect_regulation_amendments,
     extract_qms_topics_and_keywords,

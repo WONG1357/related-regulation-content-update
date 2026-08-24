@@ -6,11 +6,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
-
-from .regulation_version_comparator import extract_regulation_text
-
-
 _YEAR_RE = re.compile(r"(?<!\d)((?:19|20)\d{2})(?!\d)")
 _FILE_SUFFIX_RE = re.compile(r"\.(?:pdf|docx|xlsx|txt)$", re.IGNORECASE)
 _COPY_SUFFIX_RE = re.compile(
@@ -70,10 +65,6 @@ class ResolvedRegulationPair:
     latest_year: int
     match_mode: str
     aliases: tuple[str, ...]
-    matched_row_numbers: tuple[int, ...]
-    matched_rows: tuple[dict[str, Any], ...]
-    workbook_path: str
-    sheet_name: str
     warnings: tuple[str, ...] = ()
 
     @property
@@ -105,50 +96,26 @@ class ResolvedRegulationPair:
             "latest_year": self.latest_year,
             "match_mode": self.match_mode,
             "aliases": list(self.aliases),
-            "matched_row_numbers": list(self.matched_row_numbers),
-            "matched_rows": [dict(row) for row in self.matched_rows],
-            "workbook_path": self.workbook_path,
-            "sheet_name": self.sheet_name,
             "warnings": list(self.warnings),
-        }
-
-
-@dataclass(frozen=True)
-class _WorkbookAliasRow:
-    row_number: int
-    original_identifier: str
-    original_year: int | None
-    original_family: str
-    latest_identifier: str
-    latest_year: int | None
-    latest_family: str
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "row_number": self.row_number,
-            "original_identifier": self.original_identifier,
-            "original_year": self.original_year,
-            "original_family": self.original_family,
-            "latest_identifier": self.latest_identifier,
-            "latest_year": self.latest_year,
-            "latest_family": self.latest_family,
         }
 
 
 def resolve_regulation_pair(
     first_file: Path,
     second_file: Path,
-    workbook_path: Path,
-    sheet_name: str = "原始总表",
+    *,
+    first_name: str | None = None,
+    second_name: str | None = None,
 ) -> ResolvedRegulationPair:
-    """Resolve and order two editions against the workbook alias registry."""
+    """Resolve and order two editions whose filenames share one regulation name."""
 
-    first = parse_upload_identity(first_file)
-    second = parse_upload_identity(second_file)
+    first = parse_upload_identity(first_file, file_name=first_name)
+    second = parse_upload_identity(second_file, file_name=second_name)
     if first.family != second.family:
         raise RegulationIdentityError(
-            "family_mismatch",
-            f"Uploaded files resolve to different regulation families: {first.family} and {second.family}.",
+            "filename_mismatch",
+            "The uploaded filenames do not share the same regulation name after removing "
+            f"the edition year: {first.family} and {second.family}.",
             {"first": first.to_dict(), "second": second.to_dict()},
         )
     if first.year == second.year:
@@ -159,106 +126,55 @@ def resolve_regulation_pair(
         )
 
     old, latest = sorted((first, second), key=lambda item: item.year)
-    rows = _load_alias_rows(workbook_path, sheet_name)
-    latest_candidates = [
-        row
-        for row in rows
-        if row.latest_family == latest.family and row.latest_year == latest.year
-    ]
-    if not latest_candidates:
-        raise RegulationIdentityError(
-            "latest_not_found",
-            f"No numbered workbook row matches {latest.family} {latest.year} as the latest edition.",
-            {"family": latest.family, "latest_year": latest.year, "sheet_name": sheet_name},
-        )
-
-    exact_candidates = [
-        row
-        for row in latest_candidates
-        if row.original_family == old.family and row.original_year == old.year
-    ]
-    if exact_candidates:
-        selected = exact_candidates
-        match_mode = "exact_match"
-        warnings: tuple[str, ...] = ()
-    else:
-        selected = [row for row in latest_candidates if row.original_family == old.family]
-        if not selected:
-            raise RegulationIdentityError(
-                "family_not_found",
-                f"Workbook rows for {latest.family} {latest.year} do not belong to the uploaded family.",
-                {"candidate_rows": [row.to_dict() for row in latest_candidates]},
-            )
-        match_mode = "family_match"
-        warnings = (
-            f"The workbook has no exact {old.family} {old.year} row; the pair was accepted by family and latest year.",
-        )
-
-    edition_groups = {
-        _latest_edition_group(row.latest_identifier, latest.family)
-        for row in selected
-    }
-    if len(edition_groups) != 1:
-        raise RegulationIdentityError(
-            "ambiguous_latest_match",
-            f"Multiple workbook latest-edition groups match {latest.family} {latest.year}.",
-            {
-                "edition_groups": sorted(edition_groups),
-                "candidate_rows": [row.to_dict() for row in selected],
-            },
-        )
-
-    aliases = _aggregate_family_aliases(rows, latest.family)
     return ResolvedRegulationPair(
         old=old,
         latest=latest,
         family=latest.family,
         old_year=old.year,
         latest_year=latest.year,
-        match_mode=match_mode,
-        aliases=aliases,
-        matched_row_numbers=tuple(sorted(row.row_number for row in selected)),
-        matched_rows=tuple(row.to_dict() for row in sorted(selected, key=lambda item: item.row_number)),
-        workbook_path=str(Path(workbook_path).resolve()),
-        sheet_name=sheet_name,
-        warnings=warnings,
+        match_mode="filename_match",
+        aliases=_filename_aliases(latest.family),
     )
 
 
-def parse_upload_identity(file_path: Path) -> ParsedRegulationIdentity:
+def parse_upload_identity(file_path: Path, *, file_name: str | None = None) -> ParsedRegulationIdentity:
     path = Path(file_path)
     if not path.is_file():
         raise RegulationIdentityError("file_not_found", f"Regulation file does not exist: {path}")
 
-    normalized_name = normalize_identifier(path.name)
-    text = extract_regulation_text(path)
-    filename_families = _families_in_text(normalized_name)
-    content_families = _families_in_text(text[:50000])
-    family, family_source = _select_upload_family(filename_families, content_families, text)
-
+    display_name = Path(file_name or path.name).name
+    normalized_name = normalize_identifier(display_name)
     filename_years = _years_in_text(normalized_name)
-    if len(filename_years) == 1:
-        year = filename_years[0]
-        year_source = "filename"
-    elif len(filename_years) > 1:
-        year = _select_year_for_family(normalized_name, family)
-        year_source = "filename"
-    else:
-        year = _select_year_for_family(text[:50000], family)
-        year_source = "content"
+    if not filename_years:
+        raise RegulationIdentityError(
+            "year_missing",
+            f"No four-digit edition year could be identified in filename: {display_name}.",
+        )
+    if len(set(filename_years)) > 1:
+        raise RegulationIdentityError(
+            "year_ambiguous",
+            f"Multiple edition years were found in filename: {display_name}.",
+            {"candidates": sorted(set(filename_years))},
+        )
 
-    detected_years = tuple(sorted(set(filename_years + _family_years_in_text(text[:50000], family))))
-    detected_families = tuple(_dedupe(filename_families + content_families))
+    year = filename_years[0]
+    family = _filename_family(normalized_name)
+    if not family:
+        raise RegulationIdentityError(
+            "family_missing",
+            f"No regulation name remains after removing the edition year from filename: {display_name}.",
+        )
+
     return ParsedRegulationIdentity(
         file_path=str(path.resolve()),
-        file_name=path.name,
+        file_name=display_name,
         normalized_file_name=normalized_name,
         family=family,
         year=year,
-        family_source=family_source,
-        year_source=year_source,
-        detected_families=detected_families,
-        detected_years=detected_years,
+        family_source="filename",
+        year_source="filename",
+        detected_families=(family,),
+        detected_years=tuple(sorted(set(filename_years))),
     )
 
 
@@ -306,77 +222,20 @@ def extract_regulation_family(value: object) -> str:
     return ""
 
 
-def _select_upload_family(
-    filename_families: list[str],
-    content_families: list[str],
-    content: str,
-) -> tuple[str, str]:
-    filename_primary = _preferred_family(filename_families)
-    if filename_primary:
-        return filename_primary, "filename"
-
-    if not content_families:
-        raise RegulationIdentityError(
-            "family_missing",
-            "No supported regulation family could be identified from the filename or file content.",
-        )
-    counts = {family: _family_occurrence_count(content, family) for family in set(content_families)}
-    highest = max(counts.values())
-    leaders = sorted(family for family, count in counts.items() if count == highest)
-    if len(leaders) != 1:
-        raise RegulationIdentityError(
-            "family_ambiguous",
-            "File content contains multiple equally likely regulation families.",
-            {"candidates": leaders},
-        )
-    return leaders[0], "content"
+def _filename_family(normalized_name: str) -> str:
+    family = _YEAR_RE.sub("", normalized_name)
+    family = re.sub(r"[\s:_/+\-]+(?=[(\[{])", "", family)
+    family = re.sub(r"[(\[{]\s*[)\]}]", "", family)
+    family = family.strip(" _-:/+,")
+    return re.sub(r"\s+", " ", family)
 
 
-def _preferred_family(families: list[str]) -> str:
-    unique = _dedupe(families)
-    iso = [family for family in unique if family.startswith(("ISO ", "ISO/IEC "))]
-    if len(iso) == 1:
-        return iso[0]
-    if len(unique) == 1:
-        return unique[0]
-    if unique:
-        raise RegulationIdentityError(
-            "family_ambiguous",
-            "Filename contains multiple regulation families.",
-            {"candidates": unique},
-        )
-    return ""
-
-
-def _select_year_for_family(value: object, family: str) -> int:
-    family_years = _family_years_in_text(value, family)
-    if not family_years:
-        edition_years = [
-            int(match.group(1))
-            for match in re.finditer(r"\b(?:edition|version|issued|published)\D{0,20}((?:19|20)\d{2})\b", str(value), re.I)
-        ]
-        family_years = edition_years
-    unique = sorted(set(family_years))
-    if len(unique) == 1:
-        return unique[0]
-    if not unique:
-        raise RegulationIdentityError(
-            "year_missing",
-            f"No edition year could be identified for {family}.",
-        )
-
-    normalized = normalize_identifier(value)
-    amendment_years = [
-        int(match.group(1))
-        for match in re.finditer(r"\b(?:AMD|AMENDMENT|A\d+|COR|CORRIGENDUM)\s*[:\-]?\s*((?:19|20)\d{2})\b", normalized)
-    ]
-    if len(set(amendment_years)) == 1:
-        return amendment_years[0]
-    raise RegulationIdentityError(
-        "year_ambiguous",
-        f"Multiple edition years were found for {family}.",
-        {"candidates": unique},
-    )
+def _filename_aliases(family: str) -> tuple[str, ...]:
+    aliases = [family]
+    without_trailing_tag = re.sub(r"\s*\([A-Z]{1,8}\)$", "", family).strip()
+    if without_trailing_tag and without_trailing_tag != family:
+        aliases.append(without_trailing_tag)
+    return tuple(aliases)
 
 
 def _families_in_text(value: object) -> list[str]:
@@ -408,20 +267,6 @@ def _families_in_text(value: object) -> list[str]:
     return _dedupe([family for _, _, family in found])
 
 
-def _family_occurrence_count(text: str, family: str) -> int:
-    return len(_family_years_in_text(text, family)) + normalize_identifier(text).count(normalize_identifier(family))
-
-
-def _family_years_in_text(value: object, family: str) -> list[int]:
-    text = normalize_identifier(value)
-    family_pattern = re.escape(normalize_identifier(family)).replace(r"\ ", r"\s*")
-    pattern = re.compile(
-        family_pattern + r"\s*(?:[:\-]\s*|\s+)(?:ED\.?(?:ITION)?\s*)?((?:19|20)\d{2})(?!\d)",
-        re.IGNORECASE,
-    )
-    return [int(match.group(1)) for match in pattern.finditer(text)]
-
-
 def _years_in_text(value: object) -> list[int]:
     return [int(match.group(1)) for match in _YEAR_RE.finditer(normalize_identifier(value))]
 
@@ -431,118 +276,6 @@ def _strip_year_part(number: str) -> str:
     if len(parts) > 1 and re.fullmatch(r"(?:19|20)\d{2}", parts[-1]):
         return "-".join(parts[:-1])
     return number
-
-
-def _load_alias_rows(workbook_path: Path, sheet_name: str) -> list[_WorkbookAliasRow]:
-    path = Path(workbook_path)
-    if not path.is_file():
-        raise RegulationIdentityError("workbook_not_found", f"Workbook does not exist: {path}")
-    try:
-        frame = pd.read_excel(path, sheet_name=sheet_name, dtype=object)
-    except ValueError as exc:
-        raise RegulationIdentityError(
-            "sheet_not_found",
-            f"Workbook sheet '{sheet_name}' does not exist.",
-        ) from exc
-    except Exception as exc:
-        raise RegulationIdentityError("workbook_unreadable", f"Workbook could not be read: {exc}") from exc
-
-    columns = {normalize_identifier(column): column for column in frame.columns}
-    required = {
-        "序号": "row_number",
-        "原标准编号": "original_identifier",
-        "原版本年份": "original_year",
-        "最新版本": "latest_identifier",
-        "最新年份": "latest_year",
-    }
-    missing = [name for name in required if normalize_identifier(name) not in columns]
-    if missing:
-        raise RegulationIdentityError(
-            "workbook_columns_missing",
-            f"Workbook sheet '{sheet_name}' is missing required columns: {', '.join(missing)}.",
-        )
-
-    source_columns = {name: columns[normalize_identifier(name)] for name in required}
-    rows: list[_WorkbookAliasRow] = []
-    for _, item in frame.iterrows():
-        row_number = _numbered_row(item[source_columns["序号"]])
-        if row_number is None:
-            continue
-        original_identifier = _cell_text(item[source_columns["原标准编号"]])
-        latest_identifier = _cell_text(item[source_columns["最新版本"]])
-        if not original_identifier and not latest_identifier:
-            continue
-        original_family = extract_regulation_family(original_identifier)
-        latest_family = extract_regulation_family(latest_identifier)
-        if not original_family and not latest_family:
-            continue
-        original_year = _cell_year(item[source_columns["原版本年份"]], original_identifier)
-        latest_year = _cell_year(item[source_columns["最新年份"]], latest_identifier)
-        rows.append(
-            _WorkbookAliasRow(
-                row_number=row_number,
-                original_identifier=normalize_identifier(original_identifier),
-                original_year=original_year,
-                original_family=original_family,
-                latest_identifier=normalize_identifier(latest_identifier),
-                latest_year=latest_year,
-                latest_family=latest_family,
-            )
-        )
-    return rows
-
-
-def _numbered_row(value: object) -> int | None:
-    if value is None or isinstance(value, bool) or pd.isna(value):
-        return None
-    text = unicodedata.normalize("NFKC", str(value)).strip()
-    if not re.fullmatch(r"\d+(?:\.0+)?", text):
-        return None
-    number = int(float(text))
-    return number if number > 0 else None
-
-
-def _cell_text(value: object) -> str:
-    if value is None or pd.isna(value):
-        return ""
-    return unicodedata.normalize("NFKC", str(value)).strip()
-
-
-def _cell_year(value: object, identifier: str) -> int | None:
-    text = _cell_text(value)
-    years = _years_in_text(text)
-    if len(set(years)) == 1:
-        return years[0]
-    identifier_years = _years_in_text(identifier)
-    return identifier_years[-1] if identifier_years else None
-
-
-def _latest_edition_group(identifier: str, family: str) -> str:
-    normalized = normalize_identifier(identifier)
-    family_name = normalize_identifier(family)
-    start = normalized.find(family_name)
-    tail = normalized[start + len(family_name) :] if start >= 0 else normalized
-    tail = _YEAR_RE.sub("", tail)
-    tail = re.sub(r"^[\s:/+\-]+|[\s:/+\-]+$", "", tail)
-    tail = re.sub(r"[\s:/+\-]+", " ", tail).strip()
-    return f"{family_name}|{tail or 'BASE'}"
-
-
-def _aggregate_family_aliases(rows: list[_WorkbookAliasRow], family: str) -> tuple[str, ...]:
-    aliases = {family}
-    for row in rows:
-        if row.original_family != family and row.latest_family != family:
-            continue
-        for identifier in (row.original_identifier, row.latest_identifier):
-            if not identifier:
-                continue
-            aliases.add(identifier)
-            aliases.update(_families_in_text(identifier))
-            without_years = _YEAR_RE.sub("", identifier)
-            without_years = re.sub(r"[\s:/+\-]+$", "", without_years).strip()
-            if without_years:
-                aliases.add(without_years)
-    return tuple(sorted(aliases, key=lambda item: (item != family, item)))
 
 
 def _dedupe(values: list[str]) -> list[str]:
