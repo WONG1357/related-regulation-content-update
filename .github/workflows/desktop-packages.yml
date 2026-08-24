@@ -1,0 +1,79 @@
+name: Build desktop packages
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/desktop-packages.yml"
+      - "RegulatoryReview.spec"
+      - "app.py"
+      - "desktop_launcher.py"
+      - "modules/**"
+      - "prompts/**"
+      - "requirements*.txt"
+      - "tests/**"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: RegulatoryReview-Windows
+          - os: macos-15
+            artifact: RegulatoryReview-macOS
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-desktop.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements-desktop.txt
+
+      - name: Run unit tests
+        run: python -m unittest discover tests
+
+      - name: Build application
+        run: python -m PyInstaller --noconfirm --clean RegulatoryReview.spec
+
+      - name: Smoke-test Windows package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:REGULATORY_DESKTOP_HOME = "$env:RUNNER_TEMP\regulatory-review-smoke"
+          $env:REGULATORY_DESKTOP_DOCUMENTS = "$env:RUNNER_TEMP\regulatory-review-documents"
+          $process = Start-Process -FilePath ".\dist\RegulatoryReview\RegulatoryReview.exe" -ArgumentList "--smoke-test" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+
+      - name: Smoke-test macOS package
+        if: runner.os == 'macOS'
+        run: |
+          export REGULATORY_DESKTOP_HOME="$RUNNER_TEMP/regulatory-review-smoke"
+          export REGULATORY_DESKTOP_DOCUMENTS="$RUNNER_TEMP/regulatory-review-documents"
+          "dist/Regulatory Review.app/Contents/MacOS/RegulatoryReview" --smoke-test
+
+      - name: Archive Windows package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path ".\dist\RegulatoryReview\*" -DestinationPath ".\RegulatoryReview-Windows.zip"
+
+      - name: Archive macOS package
+        if: runner.os == 'macOS'
+        run: ditto -c -k --keepParent "dist/Regulatory Review.app" "RegulatoryReview-macOS.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.zip
+          if-no-files-found: error

@@ -12,6 +12,7 @@ import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 
+from modules.app_paths import data_root, environment_paths, original_file_root
 from modules.ai_amendment_agent import ai_is_configured
 from modules.controlled_document_source import (
     ControlledDocumentSourceError,
@@ -41,8 +42,8 @@ from modules.suggestion_runner import (
 
 
 APP_DIR = Path(__file__).resolve().parent
-DATA_DIR = APP_DIR / "data"
-DEFAULT_DOC_DIR = APP_DIR.parent / "original file"
+DATA_DIR = data_root()
+DEFAULT_DOC_DIR = original_file_root()
 UPLOAD_ROOT = DATA_DIR / "two_version_uploads"
 ANALYSIS_ROOT = DATA_DIR / "two_version_analyses"
 SUGGESTION_JOB_DIR = DATA_DIR / "regulatory_update_jobs"
@@ -59,7 +60,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
-for env_path in (APP_DIR / ".env", APP_DIR / ".env.txt"):
+for env_path in environment_paths():
     if env_path.exists():
         load_dotenv(env_path)
 

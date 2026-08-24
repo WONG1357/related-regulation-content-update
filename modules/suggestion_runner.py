@@ -10,10 +10,11 @@ from typing import Any, Callable
 
 import pandas as pd
 
+from .app_paths import data_root
 from .regulation_suggestions import generate_document_suggestion
 
 
-DEFAULT_JOB_DIR = Path(__file__).resolve().parents[1] / "data" / "regulatory_update_jobs"
+DEFAULT_JOB_DIR = data_root() / "regulatory_update_jobs"
 RUNNING_THREADS: dict[str, threading.Thread] = {}
 THREAD_LOCK = threading.Lock()
 

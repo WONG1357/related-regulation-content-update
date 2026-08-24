@@ -6,13 +6,14 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+from .app_paths import data_root
 from .document_converter import convert_documents
 from .document_extractor import extract_document, refresh_document_references
 from .reference_graph import REFERENCE_EXTRACTOR_VERSION, attach_reference_matches, export_reference_audit
 
 
-DEFAULT_CACHE_PATH = Path(__file__).resolve().parents[1] / "data" / "document_library_cache.json"
-DEFAULT_REFERENCE_AUDIT_DIR = Path(__file__).resolve().parents[1] / "data" / "reference_audit"
+DEFAULT_CACHE_PATH = data_root() / "document_library_cache.json"
+DEFAULT_REFERENCE_AUDIT_DIR = data_root() / "reference_audit"
 
 DocumentExtractor = Callable[[str | Path], dict[str, Any]]
 ProgressCallback = Callable[[int, int, str], None]

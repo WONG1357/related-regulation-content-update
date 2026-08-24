@@ -16,6 +16,8 @@ __pycache__/
 .streamlit-home/
 .streamlit_home/
 streamlit-home/
+build/
+dist/
 
 # Local operating-system files
 .DS_Store

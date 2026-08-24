@@ -11,6 +11,7 @@ from xml.etree import ElementTree as ET
 import pandas as pd
 from openpyxl import load_workbook
 
+from .app_paths import data_root, original_file_root
 from .reference_graph import (
     deterministic_reference_range,
     document_code_from_filename,
@@ -48,8 +49,8 @@ SECTION_HEADING_RE = re.compile(
 DOC_CODE_RE = re.compile(r"\b(?:QSP\d{4}|QM\d{2}|WI-\d{2}-[A-Z]{3}-\d{2}|FM\d+[A-Z]?|SOP\d{3,4}|CP\d{3,4}|FORM\d{3,4})\b", re.IGNORECASE)
 GUIDANCE_RE = re.compile(r"\bMDCG\s*\d{4}-\d+\b|\bGN-\d+\b|\bCOP\b|\bMDACS\b", re.IGNORECASE)
 FORM_RE = re.compile(r"\bFM\d+[A-Z]?\b", re.IGNORECASE)
-DEFAULT_ANNOTATION_PATH = Path(__file__).resolve().parents[1] / "data" / "section3_annotations.json"
-DEFAULT_ORIGINAL_FILE_DIR = Path(__file__).resolve().parents[2] / "original file"
+DEFAULT_ANNOTATION_PATH = data_root() / "section3_annotations.json"
+DEFAULT_ORIGINAL_FILE_DIR = original_file_root()
 REFERENCE_DOCUMENT_MARKERS = [
     "參考文件 Reference Document",
     "參考文件 References Document",

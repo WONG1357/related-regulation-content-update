@@ -8,10 +8,11 @@ from typing import Any
 import requests
 from dotenv import load_dotenv
 
+from .app_paths import APP_ROOT, environment_paths
 
 DEFAULT_BASE_URL = "https://api.deepseek.com/chat/completions"
 DEFAULT_MODEL = "deepseek-v4-flash"
-APP_DIR = Path(__file__).resolve().parents[1]
+APP_DIR = APP_ROOT
 
 
 def load_prompt() -> str:
@@ -20,7 +21,7 @@ def load_prompt() -> str:
 
 
 def load_app_env() -> None:
-    for env_path in [APP_DIR / ".env", APP_DIR / ".env.txt"]:
+    for env_path in environment_paths():
         if env_path.exists():
             load_dotenv(env_path)
 

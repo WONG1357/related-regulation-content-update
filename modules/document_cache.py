@@ -7,11 +7,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from .app_paths import data_root
 from .reference_graph import REFERENCE_EXTRACTOR_VERSION
 
 
-DEFAULT_CACHE_PATH = Path(__file__).resolve().parents[1] / "data" / "document_analysis_cache.json"
-DEFAULT_SUMMARY_DIR = Path(__file__).resolve().parents[1] / "data" / "document_summaries"
+DEFAULT_CACHE_PATH = data_root() / "document_analysis_cache.json"
+DEFAULT_SUMMARY_DIR = data_root() / "document_summaries"
 PROFILE_FIELDS = [
     "main_sections",
     "reference_regulations",

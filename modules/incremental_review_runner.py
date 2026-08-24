@@ -10,11 +10,12 @@ from typing import Any
 
 import pandas as pd
 
+from .app_paths import data_root
 from .document_cache import DEFAULT_CACHE_PATH
 from .impact_analyzer import DocumentAnalyzer, PairReviewer, review_one_candidate
 
 
-DEFAULT_JOB_DIR = Path(__file__).resolve().parents[1] / "data" / "ai_review_jobs"
+DEFAULT_JOB_DIR = data_root() / "ai_review_jobs"
 RUNNING_THREADS: dict[str, threading.Thread] = {}
 THREAD_LOCK = threading.Lock()
 

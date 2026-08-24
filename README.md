@@ -91,6 +91,54 @@ Then open the URL printed by Streamlit, normally:
 http://127.0.0.1:8501
 ```
 
+## One-click desktop packages
+
+The Windows and macOS packages run entirely on the user's computer. Opening **Regulatory Review** starts a private Streamlit server on `127.0.0.1` and displays it in a desktop window. Closing that window stops the server. No always-on office computer or Streamlit Community Cloud connection is required.
+
+The packages are built by the **Build desktop packages** GitHub Actions workflow:
+
+- Windows: extract `RegulatoryReview-Windows.zip`, then open `RegulatoryReview.exe` inside the extracted folder.
+- macOS on Apple silicon: extract `RegulatoryReview-macOS.zip`, move **Regulatory Review.app** to Applications if desired, then open it. An Intel build can be added if an older Intel Mac must be supported.
+
+These development packages are not code-signed or notarized. Windows SmartScreen or macOS Gatekeeper may therefore show an unidentified-developer warning. An organization-wide distribution should use the organization's Windows signing certificate and Apple Developer ID.
+
+### Desktop storage
+
+Each installation keeps generated data and configuration outside the application bundle:
+
+| Purpose | Windows | macOS |
+| --- | --- | --- |
+| Configuration | `%LOCALAPPDATA%\Regulatory Impact Review\config\` | `~/Library/Application Support/Regulatory Impact Review/config/` |
+| Runtime data and uploads | `%LOCALAPPDATA%\Regulatory Impact Review\data\` | `~/Library/Application Support/Regulatory Impact Review/data/` |
+| Optional controlled-document folder | `%USERPROFILE%\Documents\Regulatory Impact Review\original file\` | `~/Documents/Regulatory Impact Review/original file/` |
+| Startup log | `%LOCALAPPDATA%\Regulatory Impact Review\logs\desktop-server.log` | `~/Library/Application Support/Regulatory Impact Review/logs/desktop-server.log` |
+
+Users can upload a controlled-document folder in the app instead of maintaining the optional `original file` folder.
+
+### Configure AI once per computer
+
+The public desktop package intentionally contains no API key. Before giving the computer to a colleague, an administrator can place a `.env` file in the configuration directory listed above:
+
+```text
+AI_API_KEY=replace-with-the-deployment-key
+AI_BASE_URL=https://api.deepseek.com
+AI_MODEL=deepseek-v4-flash
+```
+
+After that one-time setup, the colleague opens the app without entering a key. A locally installed application cannot make a shared API key impossible for that computer's user or administrator to recover. Use separate keys, usage monitoring, and provider-side spending controls if stronger accountability is required.
+
+Controlled-document content used for AI suggestions is sent from the user's computer to the configured AI provider. Confirm that this is permitted by the organization's document-handling policy.
+
+### Build locally
+
+Build on each target operating system; PyInstaller does not cross-compile Windows and macOS applications:
+
+```bash
+python -m venv .venv
+python -m pip install -r requirements-desktop.txt
+python -m PyInstaller --noconfirm --clean RegulatoryReview.spec
+```
+
 ## Expected folder layout
 
 The server-side controlled-document folder is optional. When present, use this layout:
