@@ -2,7 +2,34 @@
 
 Streamlit application for assessing the impact of a regulation update on controlled QMS documents.
 
-The application compares two uploaded editions of the same regulation, traces affected controlled documents through Section 3 references, and produces evidence-based amendment suggestions for QA/RA review. It does not modify controlled documents automatically.
+## Standards update discovery agent (new independent entry point)
+
+The new workflow discovers ISO publications within a selected date range, resolves
+official predecessor IDs, and prepares conservative differences from supplied
+TXT, DOCX or PDF editions. It works without a controlled-document folder.
+
+```bash
+pip install -r requirements.txt
+streamlit run standards_updates_app.py
+```
+
+Use an explicit standard watchlist, ICS classification, or all ISO. Natural-language
+queries support English/Chinese rolling periods and explicit dates; optional AI
+query interpretation reuses the configured `AI_API_KEY`, `AI_BASE_URL`, and
+`AI_MODEL`. Catalogue discovery and local text comparison do not need an API key.
+
+The source is the official daily ISO Open Data catalogue. This first version covers
+publication events and local text-change evidence; it does not claim complete
+historical lifecycle coverage, complete semantic/visual comparison, IEC/ASTM
+coverage, or regulatory recognition. Licensed full texts are not downloaded or
+sent to an AI model by this workflow.
+
+See [the implementation and handoff guide](docs/standards-update-agent-handoff.md)
+for architecture, CLI examples, evidence states, verified limitations and next steps.
+
+## Existing QMS impact-review workflow
+
+The original application compares two uploaded editions of the same regulation, traces affected controlled documents through Section 3 references, and produces evidence-based amendment suggestions for QA/RA review. It does not modify controlled documents automatically.
 
 ## What the application does
 
